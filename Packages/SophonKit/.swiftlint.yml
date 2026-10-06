@@ -1,0 +1,2 @@
+# The build-tool plugin only looks for a config inside the package; the real one is at the repo root.
+parent_config: ../../.swiftlint.yml
