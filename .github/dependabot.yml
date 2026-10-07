@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Covers SophonKit's Package.swift only: Dependabot can't read the Xcode project's Package.resolved.
+  - package-ecosystem: swift
+    directory: /Packages/SophonKit
+    schedule:
+      interval: weekly
+    groups:
+      swift-packages:
+        patterns: ["*"]

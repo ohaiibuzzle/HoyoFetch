@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, senpai]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: SwiftLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install SwiftLint
+        run: |
+          # Same version as the SwiftLintPlugins pin the Xcode project builds with.
+          version=$(jq -r '.pins[] | select(.identity == "swiftlintplugins") | .state.version' \
+            HoyoFetch.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved)
+          curl -fsSL -o "$RUNNER_TEMP/swiftlint.zip" \
+            "https://github.com/realm/SwiftLint/releases/download/$version/swiftlint_linux_amd64.zip"
+          unzip -q "$RUNNER_TEMP/swiftlint.zip" swiftlint-static -d "$RUNNER_TEMP/swiftlint"
+          echo "$RUNNER_TEMP/swiftlint" >> "$GITHUB_PATH"
+      - name: Lint
+        run: swiftlint-static lint --strict --reporter github-actions-logging
+
+  sophonkit:
+    name: SophonKit tests (macOS 15)
+    # The oldest supported macOS; proves the package actually runs at its deployment target.
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        working-directory: Packages/SophonKit
+    steps:
+      - uses: actions/checkout@v7
+      - run: swift --version
+      - name: Build
+        run: swift build --build-tests
+      # LiveTests stay off: they only run with SOPHON_LIVE set.
+      - name: Test
+        run: swift test --skip-build
+
+  app:
+    name: App build (Xcode 27)
+    # Beta runner image; the project needs the Xcode 27 toolchain.
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: >
+          xcodebuild build
+          -project HoyoFetch.xcodeproj
+          -scheme HoyoFetch
+          -configuration Release
+          -destination 'generic/platform=macOS'
+          -skipPackagePluginValidation
+          CODE_SIGNING_ALLOWED=NO

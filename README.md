@@ -24,7 +24,7 @@ SophonKit depends on [swift-protobuf](https://github.com/apple/swift-protobuf), 
 
 ## Building
 
-Open `HoyoFetch.xcodeproj` in Xcode 27 and run the `HoyoFetch` scheme. The first time, Xcode asks you to trust the SwiftLint build plugin.
+The app and SophonKit run on macOS 15 or later. Open `HoyoFetch.xcodeproj` in Xcode 27 and run the `HoyoFetch` scheme. The first time, Xcode asks you to trust the SwiftLint build plugin.
 
 From the command line:
 

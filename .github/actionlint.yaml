@@ -1,0 +1,4 @@
+self-hosted-runner:
+  # GitHub-hosted beta image, not yet in actionlint's list of known labels.
+  labels:
+    - xcode-27

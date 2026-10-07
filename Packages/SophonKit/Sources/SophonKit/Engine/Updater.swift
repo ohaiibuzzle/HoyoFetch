@@ -63,6 +63,9 @@ struct Updater {
             tracker.log("Could not fetch the \(state.tag) manifests (\(error.localizedDescription)); "
                 + "falling back to a full verify")
             try await job.installAll(installer.loadManifests(newBuild, fields: fields, job: job).manifests)
+            // Without the old manifest there is no telling which files the new version dropped; those stay.
+            tracker.log("Files removed in \(target.tag) can't be identified without the \(state.tag) manifest")
+            job.cleanUpUpdateLeftovers()
             return true
         }
 
@@ -257,18 +260,10 @@ struct Updater {
         }
         for path in plan.removals {
             let url = job.url(path)
-            if fileManager.fileSize(url) != nil {
-                try? fileManager.removeItem(at: url)
+            if fileManager.fileSize(url) != nil, job.remove(url) {
+                job.pruneEmptyParents(of: url)
             }
         }
-        for blob in plan.blobs {
-            let url = job.patchDirectory.appending(path: blob.patch.blobName)
-            try? fileManager.removeItem(at: url)
-            try? fileManager.removeItem(at: url.appendingPathExtension("verified"))
-        }
-        if (try? fileManager.contentsOfDirectory(atPath: job.patchDirectory.path))?.isEmpty == true {
-            try? fileManager.removeItem(at: job.patchDirectory)
-        }
-        try? fileManager.removeItem(at: job.stagingDirectory)
+        job.cleanUpUpdateLeftovers()
     }
 }
