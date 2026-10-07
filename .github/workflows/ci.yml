@@ -49,6 +49,26 @@ jobs:
       - name: Test
         run: swift test --skip-build
 
+  sophonkit-linux:
+    name: SophonKit tests (Linux, Swift ${{ matrix.swift }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 6.2 is the oldest toolchain swift-crypto 5 accepts; 6.4 matches the Xcode 27 toolchain.
+        swift: ["6.2", "6.4"]
+    container: swift:${{ matrix.swift }}-noble
+    defaults:
+      run:
+        working-directory: Packages/SophonKit
+    steps:
+      - uses: actions/checkout@v7
+      - run: swift --version
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test --skip-build
+
   app:
     name: App build (Xcode 27)
     # Beta runner image; the project needs the Xcode 27 toolchain.

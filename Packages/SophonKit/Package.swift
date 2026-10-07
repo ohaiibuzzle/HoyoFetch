@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "SophonKit", targets: ["SophonKit"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "5.0.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.38.1"),
         .package(url: "https://github.com/facebook/zstd.git", from: "1.5.7"),
         .package(url: "https://github.com/ohaiibuzzle/hdiffswift.git", branch: "senpai"),
@@ -19,6 +20,7 @@ let package = Package(
         .target(
             name: "SophonKit",
             dependencies: [
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "libzstd", package: "zstd"),
                 .product(name: "HPatch", package: "hdiffswift"),

@@ -13,7 +13,7 @@ extension Job {
 
         if fileManager.fileSize(blob) == patch.blobSize,
            fileManager.fileExists(atPath: marker.path) || (try? hash.matches(fileAt: blob)) == true {
-            fileManager.createFile(atPath: marker.path, contents: nil)
+            _ = fileManager.createFile(atPath: marker.path, contents: nil)
             tracker.add(completed: patch.blobSize)
             return blob
         }
@@ -39,7 +39,7 @@ extension Job {
                 throw error
             }
         })
-        fileManager.createFile(atPath: marker.path, contents: nil)
+        _ = fileManager.createFile(atPath: marker.path, contents: nil)
         return blob
     }
 

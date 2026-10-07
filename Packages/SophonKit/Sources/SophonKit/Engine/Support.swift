@@ -172,8 +172,14 @@ func forEachConcurrently<S: Sequence>(
 }
 
 func availableCapacity(at url: URL) -> Int64? {
+    #if canImport(Darwin)
+    // Counts purgeable space as free, like the Finder does.
     let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
     return values?.volumeAvailableCapacityForImportantUsage
+    #else
+    let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+    return values?.volumeAvailableCapacity.map(Int64.init)
+    #endif
 }
 
 /// A Mutex in a class, so task-group children can share it.

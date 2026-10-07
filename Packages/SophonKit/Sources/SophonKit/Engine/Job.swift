@@ -1,4 +1,4 @@
-import CryptoKit
+import Crypto
 import Foundation
 
 /// One install / update run against one game folder. Holds the per-file workers.
@@ -125,7 +125,7 @@ final class Job: Sendable {
         }
         try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         try raw.write(to: url, options: .atomic)
-        FileManager.default.createFile(atPath: marker.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: marker.path, contents: nil)
         tracker.add(completed: chunk.compressedSize)
     }
 

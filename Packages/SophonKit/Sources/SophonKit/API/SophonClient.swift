@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Discovery API client (spec section 2).
 public final class SophonClient: Sendable {

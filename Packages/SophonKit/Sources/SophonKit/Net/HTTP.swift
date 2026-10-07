@@ -1,4 +1,8 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+import Synchronization
 
 /// Thin URLSession wrapper with the library's retry policy (spec section 4): 10 attempts, 1 s apart,
 /// 20 s inactivity timeout.
@@ -7,6 +11,7 @@ final class HTTP: Sendable {
     static let retryDelay: Duration = .seconds(1)
 
     let session: URLSession
+    private let transfers = TransferDelegate()
 
     init(maxConnectionsPerHost: Int) {
         let config = URLSessionConfiguration.ephemeral
@@ -15,7 +20,7 @@ final class HTTP: Sendable {
         config.httpMaximumConnectionsPerHost = maxConnectionsPerHost
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = nil
-        session = URLSession(configuration: config)
+        session = URLSession(configuration: config, delegate: transfers, delegateQueue: nil)
     }
 
     deinit {
@@ -24,9 +29,9 @@ final class HTTP: Sendable {
 
     /// Fetches `url` once and checks for a 2xx status.
     func fetch(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
-        try Self.check(response, request.url!)
-        return data
+        let body = Mutexed(Data())
+        try await transfer(request) { chunk in body.withLock { $0.append(chunk) } }
+        return body.withLock { $0 }
     }
 
     func fetch(_ url: URL) async throws -> Data {
@@ -35,11 +40,45 @@ final class HTTP: Sendable {
 
     /// Downloads `url` to `destination` (replacing it), reporting received bytes as they arrive.
     func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Int64) -> Void) async throws {
-        let (temp, response) = try await session.download(from: url, delegate: DownloadProgressDelegate(progress))
-        defer { try? FileManager.default.removeItem(at: temp) }
-        try Self.check(response, url)
-        _ = try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.moveItem(at: temp, to: destination)
+        let fileManager = FileManager.default
+        let temp = fileManager.temporaryDirectory.appending(path: "SophonKit-\(UUID().uuidString)")
+        guard fileManager.createFile(atPath: temp.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temp.path])
+        }
+        defer { try? fileManager.removeItem(at: temp) }
+        let file = try FileHandle(forWritingTo: temp)
+        do {
+            try await transfer(URLRequest(url: url)) { chunk in
+                try file.write(contentsOf: chunk)
+                progress(Int64(chunk.count))
+            }
+            try file.close()
+        } catch {
+            try? file.close()
+            throw error
+        }
+        _ = try? fileManager.removeItem(at: destination)
+        try fileManager.moveItem(at: temp, to: destination)
+    }
+
+    /// Runs `request` as a plain data task, handing each received chunk to `receive`, and throws for a
+    /// non-2xx status. Every request goes through here rather than URLSession's async or download-task
+    /// conveniences, which behave differently across Foundation implementations (swift-corelibs-foundation
+    /// writes a delegate-observed download twice; Apple's never reports its progress).
+    private func transfer(_ request: URLRequest, receive: @escaping @Sendable (Data) throws -> Void) async throws {
+        let running = Mutexed<URLSessionDataTask?>(nil)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let task = session.dataTask(with: request)
+                transfers.start(task, url: request.url!, receive: receive, continuation: continuation)
+                running.withLock { $0 = task }
+                task.resume()
+                // Cancelled before `running` was set: the handler below had nothing to cancel.
+                if Task.isCancelled { task.cancel() }
+            }
+        } onCancel: {
+            running.withLock { $0 }?.cancel()
+        }
     }
 
     static func check(_ response: URLResponse, _ url: URL) throws {
@@ -49,24 +88,70 @@ final class HTTP: Sendable {
     }
 }
 
-/// Forwards byte-count deltas from a download task.
-private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
-    let progress: @Sendable (Int64) -> Void
-
-    init(_ progress: @escaping @Sendable (Int64) -> Void) {
-        self.progress = progress
+/// The session delegate: routes each data task's callbacks to the transfer that started it.
+private final class TransferDelegate: NSObject, URLSessionDataDelegate, Sendable {
+    private struct Transfer: Sendable {
+        let url: URL
+        let receive: @Sendable (Data) throws -> Void
+        let continuation: CheckedContinuation<Void, any Error>
+        var failure: (any Error)?
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
-                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        progress(bytesWritten)
+    private let transfers = Mutex<[Int: Transfer]>([:])
+
+    func start(
+        _ task: URLSessionTask,
+        url: URL,
+        receive: @escaping @Sendable (Data) throws -> Void,
+        continuation: CheckedContinuation<Void, any Error>
+    ) {
+        let transfer = Transfer(url: url, receive: receive, continuation: continuation)
+        transfers.withLock { $0[task.taskIdentifier] = transfer }
+    }
+
+    /// Records the first error for `task`, which then reports it instead of the cancellation it causes.
+    private func fail(_ task: URLSessionTask, _ error: any Error) {
+        transfers.withLock { transfers in
+            if transfers[task.taskIdentifier]?.failure == nil { transfers[task.taskIdentifier]?.failure = error }
+        }
+        task.cancel()
     }
 
     func urlSession(
         _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didFinishDownloadingTo location: URL
-    ) {}
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let url = transfers.withLock({ $0[dataTask.taskIdentifier]?.url }) else {
+            return completionHandler(.cancel)
+        }
+        do {
+            try HTTP.check(response, url)
+            completionHandler(.allow)
+        } catch {
+            fail(dataTask, error)
+            completionHandler(.cancel)
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let receive = transfers.withLock({ $0[dataTask.taskIdentifier]?.receive }) else { return }
+        do {
+            try receive(data)
+        } catch {
+            fail(dataTask, error)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        guard let transfer = transfers.withLock({ $0.removeValue(forKey: task.taskIdentifier) }) else { return }
+        if let error = transfer.failure ?? error {
+            transfer.continuation.resume(throwing: error)
+        } else {
+            transfer.continuation.resume()
+        }
+    }
 }
 
 /// Runs `body` up to `attempts` times, waiting `delay` between tries. Cancellation is never retried.

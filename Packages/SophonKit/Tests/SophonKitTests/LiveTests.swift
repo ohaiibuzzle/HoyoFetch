@@ -149,6 +149,8 @@ struct LiveTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let job = job(root)
         let blob = try await job.ensureBlob(chosen[chosen.startIndex], from: patches.diffDownload)
+        // Download progress covers every byte of the blob, once.
+        #expect(job.tracker.snapshot.downloadedBytes == FileManager.default.fileSize(blob))
         let head = try RandomAccessFile(blob, mode: .read).read(at: 0, count: 8)
         let magic = head.map { String(format: "%02x", $0) }.joined()
         print("blob \(blobName): \(FileManager.default.fileSize(blob) ?? -1) bytes, starts \(magic)")

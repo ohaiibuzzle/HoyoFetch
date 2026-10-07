@@ -13,7 +13,7 @@ struct CleanupTests {
 
     private func touch(_ url: URL) throws {
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        fileManager.createFile(atPath: url.path, contents: Data("x".utf8))
+        _ = fileManager.createFile(atPath: url.path, contents: Data("x".utf8))
     }
 
     private func exists(_ url: URL) -> Bool { fileManager.fileExists(atPath: url.path) }
