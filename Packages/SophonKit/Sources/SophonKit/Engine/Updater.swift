@@ -32,6 +32,12 @@ struct UpdatePlan: Sendable {
     }
 
     var blobBytes: Int64 { blobs.reduce(0) { $0 + $1.patch.blobSize } }
+
+    /// Bytes of blobs not yet fully in `directory`; already-downloaded ones already use their space.
+    func missingBlobBytes(in directory: URL) -> Int64 {
+        blobs.filter { FileManager.default.fileSize(directory.appending(path: $0.patch.blobName)) != $0.patch.blobSize }
+            .reduce(0) { $0 + $1.patch.blobSize }
+    }
 }
 
 /// Runs one update or pre-download from the installed version (`state.tag`) to `target`.
@@ -174,7 +180,10 @@ struct Updater {
             }
         }
         let stageBytes = stage.reduce(0) { $0 + $1.chunk.compressedSize }
-        try job.checkSpace(needed: plan.blobBytes + stageBytes)
+        let missingStageBytes = stage
+            .filter { FileManager.default.fileSize(job.stagedChunkURL($0.chunk)) != $0.chunk.compressedSize }
+            .reduce(0) { $0 + $1.chunk.compressedSize }
+        try job.checkSpace(needed: plan.missingBlobBytes(in: job.patchDirectory) + missingStageBytes)
         tracker.begin(.downloading, totalBytes: plan.blobBytes + stageBytes, totalFiles: plan.blobs.count + stage.count)
 
         let job = job
@@ -194,7 +203,7 @@ struct Updater {
     private func apply(_ plan: UpdatePlan) async throws {
         let rebuildBytes = plan.rebuilds.reduce(0) { $0 + $1.chunkBytes }
         let fileBytes = (plan.patches.map(\.asset) + plan.rebuilds.map(\.asset)).reduce(0) { $0 + $1.size }
-        try job.checkSpace(needed: plan.blobBytes + fileBytes)
+        try job.checkSpace(needed: plan.missingBlobBytes(in: job.patchDirectory) + fileBytes)
         tracker.begin(.downloading, totalBytes: plan.blobBytes + rebuildBytes,
                       totalFiles: plan.patches.count + plan.rebuilds.count)
 

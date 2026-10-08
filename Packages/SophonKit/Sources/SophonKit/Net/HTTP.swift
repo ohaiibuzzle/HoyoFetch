@@ -41,7 +41,8 @@ final class HTTP: Sendable {
     /// Downloads `url` to `destination` (replacing it), reporting received bytes as they arrive.
     func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Int64) -> Void) async throws {
         let fileManager = FileManager.default
-        let temp = fileManager.temporaryDirectory.appending(path: "SophonKit-\(UUID().uuidString)")
+        // Next to the destination, so it lands on the same volume and the final move is a rename.
+        let temp = destination.appendingPathExtension("part")
         guard fileManager.createFile(atPath: temp.path, contents: nil) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temp.path])
         }
@@ -57,8 +58,7 @@ final class HTTP: Sendable {
             try? file.close()
             throw error
         }
-        _ = try? fileManager.removeItem(at: destination)
-        try fileManager.moveItem(at: temp, to: destination)
+        try fileManager.replace(destination, with: temp)
     }
 
     /// Runs `request` as a plain data task, handing each received chunk to `receive`, and throws for a

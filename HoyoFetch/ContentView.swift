@@ -132,7 +132,8 @@ struct GameDetailView: View {
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { model.setFolder(url, for: game.id) }
         }
-        .task {
+        // Keyed on the build so a refresh, which clears it, loads it again.
+        .task(id: build == nil) {
             await model.loadBuild(game.id)
             resetFields()
         }

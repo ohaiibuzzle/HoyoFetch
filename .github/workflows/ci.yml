@@ -69,6 +69,27 @@ jobs:
       - name: Test
         run: swift test --skip-build
 
+  # TEMPORARY: probes how far SophonKit gets on Windows. Windows is not a supported platform, so a red run
+  # here does not fail the workflow. Remove once we've seen what breaks.
+  sophonkit-windows:
+    name: SophonKit tests (Windows, experimental)
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: Packages/SophonKit
+    steps:
+      - uses: actions/checkout@v7
+      - uses: compnerd/gha-setup-swift@v0.5.0
+        with:
+          swift-version: swift-6.4.0-release
+          swift-build: 6.4.0-RELEASE
+      - run: swift --version
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test --skip-build
+
   app:
     name: App build (Xcode 27)
     # Beta runner image; the project needs the Xcode 27 toolchain.
