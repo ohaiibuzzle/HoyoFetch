@@ -45,6 +45,8 @@ struct Updater {
     let installer: SophonInstaller
     let job: Job
     let state: SophonInstallState
+    /// Matching fields wanted after the update; may differ from `state.matchingFields`.
+    let fields: [String]
     /// The live branch, whose parameters also serve the installed version's manifests by tag.
     let current: SophonBranch
     let target: SophonBranch
@@ -52,10 +54,9 @@ struct Updater {
 
     private var tracker: ProgressTracker { job.tracker }
     private var concurrency: SophonConcurrency { job.concurrency }
-    private var fields: [String] { state.matchingFields }
 
-    /// Returns true when the folder is now at `target.tag`.
-    func run(preDownloadOnly: Bool) async throws -> Bool {
+    /// Returns the matching fields the target build has, which the folder now holds unless `preDownloadOnly`.
+    func run(preDownloadOnly: Bool) async throws -> [String] {
         let newBuild = try await installer.client.build(target)
 
         // The installed version's manifests, requested by tag (spec 6.A).
@@ -68,14 +69,15 @@ struct Updater {
             guard !preDownloadOnly else { throw error }
             tracker.log("Could not fetch the \(state.tag) manifests (\(error.localizedDescription)); "
                 + "falling back to a full verify")
-            try await job.installAll(installer.loadManifests(newBuild, fields: fields, job: job).manifests)
+            let (manifests, loaded) = try await installer.loadManifests(newBuild, fields: fields, job: job)
+            try await job.installAll(manifests)
             // Without the old manifest there is no telling which files the new version dropped; those stay.
             tracker.log("Files removed in \(target.tag) can't be identified without the \(state.tag) manifest")
             job.cleanUpUpdateLeftovers()
-            return true
+            return loaded
         }
 
-        let newManifests = try await installer.loadManifests(newBuild, fields: fields, job: job).manifests
+        let (newManifests, loaded) = try await installer.loadManifests(newBuild, fields: fields, job: job)
         let plan = try plan(
             newManifests: newManifests,
             oldAssets: try await oldAssets(oldBuild),
@@ -88,17 +90,18 @@ struct Updater {
 
         if preDownloadOnly {
             try await preDownload(plan)
-            return false
+        } else {
+            try await apply(plan)
         }
-        try await apply(plan)
-        return true
+        return loaded
     }
 
     // MARK: - Inputs
 
     private func oldAssets(_ oldBuild: SophonBuild) async throws -> [String: SophonAsset] {
+        // The installed fields, so files of a dropped package end up in the removals.
         var assets: [String: SophonAsset] = [:]
-        for field in fields {
+        for field in state.matchingFields {
             guard let entry = oldBuild.manifest(for: field) else { continue }
             tracker.log("Fetching \(state.tag) manifest for \(field)")
             for asset in try await installer.manifest(entry).files { assets[asset.key] = asset }
@@ -111,7 +114,8 @@ struct Updater {
         var manifests: [String: SophonPatchManifest] = [:]
         do {
             let patchBuild = try await installer.client.patchBuild(target)
-            for field in fields {
+            // A newly added package has no installed originals to patch.
+            for field in fields where state.matchingFields.contains(field) {
                 guard let entry = patchBuild.manifest(for: field) else { continue }
                 guard entry.stats[state.tag] != nil else {
                     tracker.log("No \(field) patch from \(state.tag); using chunk reuse")
@@ -131,7 +135,7 @@ struct Updater {
 
     // MARK: - Planning
 
-    private func plan(
+    func plan(
         newManifests: [SophonManifest],
         oldAssets: [String: SophonAsset],
         oldSources: [String: SophonDownloadInfo],

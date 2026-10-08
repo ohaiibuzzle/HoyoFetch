@@ -277,8 +277,9 @@ struct OperationView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(height: 160)
-                .onChange(of: operation.log.count) { _, count in
-                    proxy.scrollTo(count - 1, anchor: .bottom)
+                // Not `log.count`: it stops changing once the log hits its 500-line cap.
+                .onChange(of: operation.log.last) {
+                    proxy.scrollTo(operation.log.count - 1, anchor: .bottom)
                 }
             }
         }

@@ -38,10 +38,10 @@ struct ContentHash: Sendable, Hashable, CustomStringConvertible {
         return hasher.hex == hex
     }
 
-    /// Hashes the first `length` bytes of `file` (the whole file when nil).
-    func matches(file: RandomAccessFile, length: Int64? = nil) throws -> Bool {
+    /// Hashes `range` of `file` (the whole file when nil).
+    func matches(file: RandomAccessFile, range: Range<Int64>? = nil) throws -> Bool {
         var hasher = Hasher(kind)
-        try file.read(range: 0..<(length ?? file.length())) { hasher.update($0) }
+        try file.read(range: range ?? 0..<file.length()) { hasher.update($0) }
         return hasher.hex == hex
     }
 

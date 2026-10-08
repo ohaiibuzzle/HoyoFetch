@@ -1,4 +1,3 @@
-import Crypto
 import Foundation
 
 /// One install / update run against one game folder. Holds the per-file workers.
@@ -44,17 +43,9 @@ final class Job: Sendable {
     // MARK: - Chunks
 
     /// True when `file` already holds `chunk` at its offset (spec section 4, step 1: the resume mechanism).
-    func regionMatches(
-        _ file: RandomAccessFile,
-        length: Int64,
-        _ chunk: SophonChunk,
-        at offset: Int64? = nil
-    ) throws -> Bool {
-        let start = offset ?? chunk.offset
-        guard length >= start + chunk.size else { return false }
-        var md5 = Insecure.MD5()
-        try file.read(range: start..<start + chunk.size) { md5.update(bufferPointer: $0) }
-        return md5.finalize().hex == chunk.md5
+    func regionMatches(_ file: RandomAccessFile, length: Int64, _ chunk: SophonChunk) throws -> Bool {
+        let range = chunk.offset..<chunk.offset + chunk.size
+        return try length >= range.upperBound && ContentHash(chunk.md5).matches(file: file, range: range)
     }
 
     /// Downloads, decompresses and MD5-verifies one chunk, trying each source in order

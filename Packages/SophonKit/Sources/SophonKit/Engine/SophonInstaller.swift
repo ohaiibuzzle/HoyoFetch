@@ -62,10 +62,12 @@ public final class SophonInstaller: Sendable {
     }
 
     /// Updates the installed version to the live one (spec section 6). Uses a patch build where one exists for the
-    /// installed version and `usePatches` is set, and chunk reuse for everything else.
+    /// installed version and `usePatches` is set, and chunk reuse for everything else. `matchingFields` (defaults to
+    /// what is installed) can add packages, which are downloaded, or drop them, which deletes their files.
     public func update(
         _ game: SophonGameBranches,
         in root: URL,
+        matchingFields: [String]? = nil,
         usePatches: Bool = true,
         events: @escaping @Sendable (SophonEvent) -> Void = { _ in }
     ) async throws {
@@ -73,20 +75,20 @@ public final class SophonInstaller: Sendable {
         guard state.tag != game.main.tag else { throw SophonError.nothingToDo("Already up to date (\(state.tag))") }
         let job = makeJob(root, events)
         job.tracker.log("Updating \(game.game.biz) \(state.tag) → \(game.main.tag)")
-        let updater = Updater(installer: self, job: job, state: state, current: game.main, target: game.main,
-                              usePatches: usePatches)
-        if try await updater.run(preDownloadOnly: false) {
-            state.tag = game.main.tag
-            state.preDownloadedTag = nil
-        }
+        let updater = Updater(installer: self, job: job, state: state, fields: matchingFields ?? state.matchingFields,
+                              current: game.main, target: game.main, usePatches: usePatches)
+        state.matchingFields = try await updater.run(preDownloadOnly: false)
+        state.tag = game.main.tag
+        state.preDownloadedTag = nil
         try finish(job, state)
     }
 
-    /// Downloads the next version's update data ahead of release. Run ``update(_:in:usePatches:events:)`` once it is
-    /// live.
+    /// Downloads the next version's update data ahead of release. Once it is live, run
+    /// ``update(_:in:matchingFields:usePatches:events:)`` with the same `matchingFields`.
     public func preDownload(
         _ game: SophonGameBranches,
         in root: URL,
+        matchingFields: [String]? = nil,
         usePatches: Bool = true,
         events: @escaping @Sendable (SophonEvent) -> Void = { _ in }
     ) async throws {
@@ -95,8 +97,8 @@ public final class SophonInstaller: Sendable {
         guard state.tag != next.tag else { throw SophonError.nothingToDo("Already on \(next.tag)") }
         let job = makeJob(root, events)
         job.tracker.log("Pre-downloading \(game.game.biz) \(state.tag) → \(next.tag)")
-        let updater = Updater(installer: self, job: job, state: state, current: game.main, target: next,
-                              usePatches: usePatches)
+        let updater = Updater(installer: self, job: job, state: state, fields: matchingFields ?? state.matchingFields,
+                              current: game.main, target: next, usePatches: usePatches)
         _ = try await updater.run(preDownloadOnly: true)
         state.preDownloadedTag = next.tag
         try finish(job, state)

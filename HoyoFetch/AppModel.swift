@@ -149,9 +149,11 @@ final class AppModel {
             case .install:
                 try await installer.install(branches, matchingFields: matchingFields, into: folder, events: handler)
             case .update:
-                try await installer.update(branches, in: folder, usePatches: usePatches, events: handler)
+                try await installer.update(branches, in: folder, matchingFields: matchingFields,
+                                             usePatches: usePatches, events: handler)
             case .preDownload:
-                try await installer.preDownload(branches, in: folder, usePatches: usePatches, events: handler)
+                try await installer.preDownload(branches, in: folder, matchingFields: matchingFields,
+                                                  usePatches: usePatches, events: handler)
             case .repair:
                 try await installer.repair(branches, in: folder, matchingFields: matchingFields, events: handler)
             }
